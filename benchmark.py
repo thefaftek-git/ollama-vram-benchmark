@@ -473,18 +473,27 @@ class OllamaVRAMBenchmark:
                 print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
                 
                 # Show sample conversation from first successful result
-                if successful_results and 'conversation_log' in successful_results[0] and successful_results[0]['conversation_log']:
-                    print(f"    💬 Sample Conversation:")
-                    sample_log = successful_results[0]['conversation_log']
-                    for i, entry in enumerate(sample_log[:2]):  # Show first 2 exchanges
-                        if entry['type'] == 'user':
-                            user_text = entry['content'][:100] + "..." if len(entry['content']) > 100 else entry['content']
-                            print(f"       👤 User: {user_text}")
-                        elif entry['type'] == 'assistant':
-                            assistant_text = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
-                            print(f"       🤖 Assistant: {assistant_text}")
-                    if len(sample_log) > 4:
-                        print(f"       ... ({len(sample_log) - 4} more exchanges)")
+                if successful_results:
+                    first_result = successful_results[0]
+                    has_log = 'conversation_log' in first_result
+                    log_content = first_result.get('conversation_log', []) if has_log else []
+                    conv_mode = first_result.get('conversation_mode', False)
+                    
+                    print(f"    🔍 Conv mode: {conv_mode}, Has log: {has_log}, Log entries: {len(log_content)}")
+                    
+                    if has_log and log_content:
+                        print(f"    💬 Sample Conversation:")
+                        sample_log = log_content
+                        # Show first few exchanges (limit to 4 entries = 2 full exchanges)
+                        for i, entry in enumerate(sample_log[:4]):  
+                            if entry['type'] == 'user':
+                                user_text = entry['content'][:100] + "..." if len(entry['content']) > 100 else entry['content']
+                                print(f"       👤 User: {user_text}")
+                            elif entry['type'] == 'assistant':
+                                assistant_text = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
+                                print(f"       🤖 Assistant: {assistant_text}")
+                        if len(sample_log) > 4:
+                            print(f"       ... ({len(sample_log) - 4} more exchanges)")
                 
                 # Show overall progress
                 progress = context_idx / total_context_tests * 100
