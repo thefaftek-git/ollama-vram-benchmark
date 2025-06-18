@@ -87,26 +87,56 @@ class OllamaVRAMBenchmark:
             
             for model in models:
                 if self.model_name in model.get("name", ""):
-                    print(f"Model {self.model_name} is already available")
+                    print(f"✅ Model {self.model_name} is already available")
                     return True
             
-            print(f"Downloading model {self.model_name}...")
+            print(f"📥 Downloading model {self.model_name}...")
+            print("This may take several minutes (downloading ~4.1GB)...")
             pull_data = {"name": self.model_name}
             response = requests.post(f"{self.ollama_url}/api/pull", 
                                    json=pull_data, stream=True)
             
+            last_status = ""
             for line in response.iter_lines():
                 if line:
-                    data = json.loads(line)
-                    if "status" in data:
-                        print(f"Download status: {data['status']}")
-                    if data.get("status") == "success":
-                        print("Model downloaded successfully")
-                        return True
+                    try:
+                        data = json.loads(line)
+                        
+                        # Handle different types of progress messages
+                        if "status" in data:
+                            status = data["status"]
+                            
+                            # Show progress for downloading
+                            if "completed" in data and "total" in data:
+                                completed = data["completed"]
+                                total = data["total"]
+                                percent = (completed / total) * 100 if total > 0 else 0
+                                mb_completed = completed / (1024 * 1024)
+                                mb_total = total / (1024 * 1024)
+                                
+                                progress_bar = "█" * int(percent // 2) + "░" * (50 - int(percent // 2))
+                                print(f"\r[{progress_bar}] {percent:.1f}% ({mb_completed:.1f}/{mb_total:.1f} MB)", end="", flush=True)
+                            
+                            # Show status changes
+                            elif status != last_status:
+                                if last_status:  # Add newline after progress bar
+                                    print()
+                                print(f"📋 {status}")
+                                last_status = status
+                            
+                            # Check for completion
+                            if status == "success":
+                                print("\n✅ Model downloaded successfully!")
+                                return True
+                                
+                    except json.JSONDecodeError:
+                        continue
             
+            print("\n❌ Download completed but no success status received")
             return False
+            
         except Exception as e:
-            print(f"Error downloading model: {e}")
+            print(f"\n❌ Error downloading model: {e}")
             return False
 
     def get_gpu_memory_info(self) -> Tuple[int, int]:
@@ -196,28 +226,48 @@ class OllamaVRAMBenchmark:
                      step_size: int = 2048) -> List[Dict]:
         """Run benchmark across different context sizes"""
         
-        print("Starting VRAM benchmark...")
-        print(f"Context size range: {start_context} to {max_context} (step: {step_size})")
-        
         context_sizes = list(range(start_context, max_context + 1, step_size))
+        total_tests = len(context_sizes)
         
-        for context_size in context_sizes:
-            print(f"\nTesting context size: {context_size}")
+        print("🚀 Starting VRAM benchmark...")
+        print(f"📊 Context size range: {start_context:,} to {max_context:,} (step: {step_size:,})")
+        print(f"🔢 Total tests to run: {total_tests}")
+        print("=" * 60)
+        
+        for i, context_size in enumerate(context_sizes, 1):
+            print(f"\n🔍 Test {i}/{total_tests}: Context size {context_size:,}")
+            print(f"⏳ Generating text with {context_size:,} token context...")
             
             result = self.generate_text(context_size)
             self.results.append(result)
             
             if result["success"]:
-                print(f"  ✓ Success: {result['tokens_per_second']:.2f} tokens/sec")
-                print(f"  GPU Memory: {result['gpu_mem_after']}/{result['gpu_total']} MB")
-                print(f"  Generation time: {result['generation_time']:.2f}s")
+                # Show success with detailed metrics
+                print(f"  ✅ SUCCESS")
+                print(f"  ⚡ Performance: {result['tokens_per_second']:.1f} tokens/sec")
+                print(f"  🖥️  VRAM Usage: {result['gpu_mem_after']:,}/{result['gpu_total']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
+                print(f"  ⏱️  Generation time: {result['generation_time']:.2f}s")
+                print(f"  📝 Tokens generated: {result['tokens_generated']}")
+                
+                # Show progress bar
+                progress = i / total_tests * 100
+                bar_length = 30
+                filled_length = int(bar_length * i // total_tests)
+                bar = "█" * filled_length + "░" * (bar_length - filled_length)
+                print(f"  📈 Progress: [{bar}] {progress:.1f}% ({i}/{total_tests})")
+                
             else:
-                print(f"  ✗ Failed: {result.get('error', 'Unknown error')}")
-                # If we hit an error, we might have reached the limit
+                print(f"  ❌ FAILED: {result.get('error', 'Unknown error')}")
+                print(f"  🛑 Stopping benchmark - likely reached VRAM limit")
                 break
             
             # Small delay between tests
-            time.sleep(2)
+            if i < total_tests:
+                print(f"  ⏸️  Waiting 2 seconds before next test...")
+                time.sleep(2)
+        
+        print("\n" + "=" * 60)
+        print(f"🏁 Benchmark completed! Ran {len(self.results)} tests.")
         
         return self.results
 
