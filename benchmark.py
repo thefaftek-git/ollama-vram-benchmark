@@ -252,10 +252,11 @@ class OllamaVRAMBenchmark:
             gpu_mem_after, _ = self.get_gpu_memory_info()
             cpu_mem_after = psutil.Process().memory_info().rss // (1024 * 1024)
             
-            generation_time = end_time - start_time
+            total_time = end_time - start_time
             first_token_latency = (first_token_time - start_time) if first_token_time else 0
             
-            # Calculate more accurate token count
+            # Calculate accurate tokens per second from first token to end (excluding prompt processing)
+            generation_time = end_time - first_token_time if first_token_time else total_time
             final_tokens = len(response_text.split())
             tokens_per_second = final_tokens / generation_time if generation_time > 0 else 0
             
@@ -312,7 +313,7 @@ class OllamaVRAMBenchmark:
                 print(f"  ✅ SUCCESS")
                 print(f"  ⚡ Performance: {result['tokens_per_second']:.1f} tokens/sec")
                 print(f"  🖥️  VRAM Usage: {result['gpu_mem_after']:,}/{result['gpu_total']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
-                print(f"  ⏱️  Generation time: {result['generation_time']:.2f}s")
+                print(f"  ⏱️  Generation time: {result['generation_time']:.2f}s (pure generation, excluding prompt processing)")
                 print(f"  🚀 First token latency: {result['first_token_latency']:.3f}s")
                 print(f"  📝 Tokens generated: {result['tokens_generated']}")
                 
