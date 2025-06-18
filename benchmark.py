@@ -19,13 +19,35 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 import os
+import platform
 
+# GPU monitoring imports
 try:
     import pynvml
     NVIDIA_AVAILABLE = True
 except ImportError:
     NVIDIA_AVAILABLE = False
-    print("Warning: nvidia-ml-py not available. GPU monitoring disabled.")
+
+# Detect platform
+PLATFORM = platform.system().lower()
+IS_MACOS = PLATFORM == "darwin"
+IS_LINUX = PLATFORM == "linux"
+IS_WINDOWS = PLATFORM == "windows"
+
+# Apple Silicon detection
+IS_APPLE_SILICON = False
+if IS_MACOS:
+    try:
+        # Check if running on Apple Silicon
+        cpu_brand = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.brand_string']).decode().strip()
+        IS_APPLE_SILICON = 'Apple' in cpu_brand
+    except:
+        # Alternative check
+        try:
+            machine = platform.machine().lower()
+            IS_APPLE_SILICON = machine in ['arm64', 'aarch64']
+        except:
+            IS_APPLE_SILICON = False
 
 
 class OllamaVRAMBenchmark:
@@ -35,15 +57,43 @@ class OllamaVRAMBenchmark:
         self.results = []
         self.gpu_handle = None
         self.nvidia_available = NVIDIA_AVAILABLE
+        self.gpu_monitoring_available = False
+        self.platform_info = {
+            'platform': PLATFORM,
+            'is_macos': IS_MACOS,
+            'is_apple_silicon': IS_APPLE_SILICON,
+            'is_linux': IS_LINUX,
+            'is_windows': IS_WINDOWS
+        }
         
+        # Initialize GPU monitoring based on platform
+        self._init_gpu_monitoring()
+
+    def _init_gpu_monitoring(self):
+        """Initialize GPU monitoring based on the platform"""
         if self.nvidia_available:
             try:
                 pynvml.nvmlInit()
                 self.gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-                print("GPU monitoring initialized")
+                self.gpu_monitoring_available = True
+                gpu_name = pynvml.nvmlDeviceGetName(self.gpu_handle).decode('utf-8')
+                print(f"✅ NVIDIA GPU monitoring initialized: {gpu_name}")
             except Exception as e:
-                print(f"GPU monitoring failed: {e}")
+                print(f"❌ Failed to initialize NVIDIA monitoring: {e}")
                 self.nvidia_available = False
+        
+        elif IS_APPLE_SILICON:
+            # Apple Silicon Macs use unified memory, monitor system memory as proxy
+            self.gpu_monitoring_available = True
+            print("✅ Apple Silicon detected - using system memory monitoring")
+            
+        elif IS_MACOS:
+            # Intel Macs
+            self.gpu_monitoring_available = True
+            print("✅ Intel Mac detected - using system memory monitoring")
+            
+        else:
+            print("⚠️  GPU monitoring not available for this platform")
 
     def check_ollama_service(self) -> bool:
         """Check if Ollama service is running"""
@@ -185,17 +235,86 @@ class OllamaVRAMBenchmark:
             return False
 
     def get_gpu_memory_info(self) -> Tuple[int, int]:
-        """Get GPU memory usage in MB"""
-        if not self.nvidia_available or not self.gpu_handle:
+        """Get GPU/memory usage in MB based on platform"""
+        if not self.gpu_monitoring_available:
             return 0, 0
         
-        try:
-            mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
-            used_mb = mem_info.used // (1024 * 1024)
-            total_mb = mem_info.total // (1024 * 1024)
-            return used_mb, total_mb
-        except:
-            return 0, 0
+        if self.nvidia_available and self.gpu_handle:
+            # NVIDIA GPU
+            try:
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
+                used_mb = mem_info.used // (1024 * 1024)
+                total_mb = mem_info.total // (1024 * 1024)
+                return used_mb, total_mb
+            except:
+                return 0, 0
+        
+        elif IS_APPLE_SILICON:
+            # Apple Silicon - monitor system memory (unified memory architecture)
+            try:
+                # Get memory pressure and usage
+                memory = psutil.virtual_memory()
+                total_mb = memory.total // (1024 * 1024)
+                used_mb = memory.used // (1024 * 1024)
+                
+                # Try to get more detailed memory info for Apple Silicon
+                try:
+                    result = subprocess.run(['vm_stat'], capture_output=True, text=True, timeout=2)
+                    if result.returncode == 0:
+                        # Parse vm_stat output for more accurate memory usage
+                        lines = result.stdout.split('\n')
+                        page_size = 4096  # Default page size
+                        
+                        # Extract page size if available
+                        for line in lines:
+                            if 'page size of' in line:
+                                page_size = int(line.split('page size of')[1].split()[0])
+                                break
+                        
+                        # Calculate used memory more accurately
+                        wired_pages = 0
+                        active_pages = 0
+                        compressed_pages = 0
+                        
+                        for line in lines:
+                            if 'Pages wired down:' in line:
+                                wired_pages = int(line.split(':')[1].strip().rstrip('.'))
+                            elif 'Pages active:' in line:
+                                active_pages = int(line.split(':')[1].strip().rstrip('.'))
+                            elif 'Pages occupied by compressor:' in line:
+                                compressed_pages = int(line.split(':')[1].strip().rstrip('.'))
+                        
+                        used_pages = wired_pages + active_pages + compressed_pages
+                        used_mb = (used_pages * page_size) // (1024 * 1024)
+                        
+                except subprocess.TimeoutExpired:
+                    pass
+                except:
+                    pass
+                
+                return used_mb, total_mb
+            except:
+                return 0, 0
+        
+        elif IS_MACOS:
+            # Intel Mac - use system memory
+            try:
+                memory = psutil.virtual_memory()
+                total_mb = memory.total // (1024 * 1024)
+                used_mb = memory.used // (1024 * 1024)
+                return used_mb, total_mb
+            except:
+                return 0, 0
+        
+        else:
+            # Other platforms - fallback to system memory
+            try:
+                memory = psutil.virtual_memory()
+                total_mb = memory.total // (1024 * 1024)
+                used_mb = memory.used // (1024 * 1024)
+                return used_mb, total_mb
+            except:
+                return 0, 0
 
     def generate_text(self, context_size: int, target_tokens: int = 100, conversation_mode: bool = False, conversation_turns: int = 3) -> Dict:
         """Generate text with specified context size and measure performance
@@ -409,7 +528,8 @@ class OllamaVRAMBenchmark:
         total_context_tests = len(context_sizes)
         total_iterations = total_context_tests * iterations
         
-        print("🚀 Starting VRAM benchmark...")
+        mem_type = "unified memory" if self.platform_info['is_apple_silicon'] else ("VRAM" if self.nvidia_available else "memory")
+        print(f"🚀 Starting {mem_type} benchmark...")
         print(f"📊 Context size range: {start_context:,} to {max_context:,} (step: {step_size:,})")
         print(f"🔄 Iterations per context: {iterations}")
         print(f"🔢 Total tests to run: {total_context_tests} context sizes × {iterations} iterations = {total_iterations} tests")
@@ -438,11 +558,13 @@ class OllamaVRAMBenchmark:
                     # Show individual test result
                     print(f"    ✅ Iteration {iteration}: {result['tokens_per_second']:.1f} tokens/sec")
                     print(f"    📝 Tokens Generated: {result['tokens_generated']}")
-                    print(f"    🖥️  VRAM: {result['gpu_mem_after']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
+                    mem_type = "Unified Memory" if self.platform_info['is_apple_silicon'] else ("VRAM" if self.nvidia_available else "Memory")
+                    print(f"    🖥️  {mem_type}: {result['gpu_mem_after']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
                     print(f"    ⏱️  Times: Gen={result['pure_generation_time']:.3f}s, Prompt={result['prompt_processing_time']:.3f}s")
                 else:
                     print(f"    ❌ Iteration {iteration} FAILED: {result.get('error', 'Unknown error')}")
-                    print(f"    🛑 Stopping benchmark - likely reached VRAM limit")
+                    mem_type = "unified memory" if self.platform_info['is_apple_silicon'] else ("VRAM" if self.nvidia_available else "memory")
+                    print(f"    🛑 Stopping benchmark - likely reached {mem_type} limit")
                     return self.results
             
             # Calculate and show aggregated statistics for this context size
@@ -469,7 +591,8 @@ class OllamaVRAMBenchmark:
                 print(f"\n📊 CONTEXT {context_size:,} SUMMARY ({len(successful_results)}/{iterations} successful):")
                 print(f"    ⚡ Performance: {avg_tps:.1f} tokens/sec (avg), range: {min_tps:.1f}-{max_tps:.1f}")
                 print(f"    📝 Tokens Generated: {avg_tokens:.0f} (avg), range: {min_tokens}-{max_tokens}")
-                print(f"    🖥️  VRAM Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
+                mem_type = "Unified Memory" if self.platform_info['is_apple_silicon'] else ("VRAM" if self.nvidia_available else "Memory")
+                print(f"    🖥️  {mem_type} Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
                 print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
                 
                 # Show sample conversation from first successful result
@@ -504,7 +627,10 @@ class OllamaVRAMBenchmark:
                 
             else:
                 print(f"\n❌ ALL ITERATIONS FAILED for context size {context_size:,}")
-                print(f"🛑 Stopping benchmark - likely reached VRAM limit")
+
+                mem_type = "unified memory" if self.platform_info['is_apple_silicon'] else ("VRAM" if self.nvidia_available else "memory")
+                print(f"🛑 Stopping benchmark - likely reached {mem_type} limit")
+
                 break
             
             # Small delay between context size tests
@@ -664,8 +790,9 @@ class OllamaVRAMBenchmark:
         # GPU memory usage vs context size
         ax2.plot(contexts, gpu_mem, 'r-o', linewidth=2, markersize=6)
         ax2.set_xlabel("Context Size")
-        ax2.set_ylabel("GPU Memory (MB)")
-        ax2.set_title("VRAM Usage vs Context Size")
+        ax2.set_ylabel(f"{mem_type} (MB)")
+        mem_type = "Unified Memory" if self.platform_info['is_apple_silicon'] else ("VRAM" if self.nvidia_available else "Memory")
+        ax2.set_title(f"{mem_type} Usage vs Context Size")
         ax2.grid(True, alpha=0.3)
         
         # Generation time vs context size
@@ -680,7 +807,7 @@ class OllamaVRAMBenchmark:
         ax4.plot(contexts[:len(efficiency)], efficiency, 'm-o', linewidth=2, markersize=6)
         ax4.set_xlabel("Context Size")
         ax4.set_ylabel("Efficiency (Tokens/sec per MB)")
-        ax4.set_title("VRAM Efficiency vs Context Size")
+        ax4.set_title(f"{mem_type} Efficiency vs Context Size")
         ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()
@@ -698,7 +825,7 @@ class OllamaVRAMBenchmark:
 def main():
     import argparse
     
-    parser = argparse.ArgumentParser(description='VRAM Benchmark for Ollama Models')
+    parser = argparse.ArgumentParser(description='Memory Benchmark for Ollama Models (VRAM/Unified Memory)')
     parser.add_argument('--conversation', action='store_true', 
                         help='Enable conversation mode for multi-turn benchmarks')
     parser.add_argument('--turns', type=int, default=3,
@@ -732,7 +859,27 @@ def main():
     
     # Run benchmark
     print("\n" + "="*60)
-    print("STARTING VRAM BENCHMARK")
+    print("STARTING MEMORY BENCHMARK")
+    print("="*60)
+    
+    # Display system information
+    print(f"🖥️  Platform: {benchmark.platform_info['platform'].title()}")
+    if benchmark.platform_info['is_apple_silicon']:
+        print("🧠 Architecture: Apple Silicon (Unified Memory)")
+    elif benchmark.platform_info['is_macos']:
+        print("🧠 Architecture: Intel Mac")
+    elif benchmark.nvidia_available:
+        try:
+            gpu_name = pynvml.nvmlDeviceGetName(benchmark.gpu_handle).decode('utf-8')
+            print(f"🎮 GPU: {gpu_name}")
+        except:
+            print("🎮 GPU: NVIDIA (detected)")
+    
+    _, total_mem = benchmark.get_gpu_memory_info()
+    if total_mem > 0:
+        mem_type = "Unified Memory" if benchmark.platform_info['is_apple_silicon'] else ("VRAM" if benchmark.nvidia_available else "System Memory")
+        print(f"💾 Total {mem_type}: {total_mem:,} MB")
+    
     print("="*60)
     
     try:
@@ -755,8 +902,9 @@ def main():
             print(f"Maximum successful context size: {analysis['max_successful_context']}")
             print(f"Optimal context size (>80% performance): {analysis['optimal_context_size']}")
             print(f"Baseline performance: {analysis['baseline_performance']:.2f} tokens/sec")
-            print(f"Maximum VRAM used: {analysis['max_gpu_memory_used']}/{analysis['total_gpu_memory']} MB")
-            print(f"VRAM utilization: {(analysis['max_gpu_memory_used']/analysis['total_gpu_memory']*100):.1f}%")
+            mem_type = "Unified Memory" if benchmark.platform_info['is_apple_silicon'] else ("VRAM" if benchmark.nvidia_available else "Memory")
+            print(f"Maximum {mem_type} used: {analysis['max_gpu_memory_used']}/{analysis['total_gpu_memory']} MB")
+            print(f"{mem_type} utilization: {(analysis['max_gpu_memory_used']/analysis['total_gpu_memory']*100):.1f}%")
         
         # Save results
         benchmark.save_results()

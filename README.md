@@ -1,19 +1,27 @@
-# Ollama VRAM Benchmark Tool
+# Ollama Memory Benchmark Tool
 
-This tool benchmarks the Mistral-7B-Instruct-v0.3 model (Q4_K_M quantization) to determine the maximum context size that can fit in VRAM before overflow to CPU memory.
+This tool benchmarks the Mistral-7B-Instruct-v0.3 model (Q4_K_M quantization) to determine the maximum context size that can fit in available memory (VRAM/Unified Memory) before overflow to slower memory tiers.
 
-## Hardware Target
-- GPU: RTX 5060 Ti with 16GB VRAM
-- Expected baseline: ~70 tokens/second at 4096 context window (from LMStudio)
+## Platform Support
+- **NVIDIA GPUs**: Full VRAM monitoring with detailed GPU metrics
+- **Apple Silicon Macs (M1/M2/M3)**: Unified memory monitoring optimized for Apple's architecture  
+- **Intel Macs**: System memory monitoring
+- **Other platforms**: Basic memory monitoring fallback
+
+## Hardware Examples
+- **NVIDIA**: RTX 5060 Ti with 16GB VRAM (~70 tokens/sec at 4096 context from LMStudio)
+- **Apple Silicon**: M2 Pro with 32GB unified memory
+- **Intel Mac**: Any Mac with sufficient system memory
 
 ## Features
 - Automated model download and setup
 - Progressive context size testing
-- VRAM usage monitoring
+- Platform-specific memory monitoring (VRAM/Unified Memory/System Memory)
 - Performance metrics collection
 - Multiple iterations for statistical accuracy
 - Conversation mode for realistic multi-turn benchmarking
-- Automatic detection of VRAM overflow point
+- Automatic detection of memory overflow point
+- Cross-platform compatibility
 
 ## Usage
 
