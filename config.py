@@ -5,8 +5,8 @@ Configuration file for VRAM benchmark settings
 
 # Model configuration
 MODEL_CONFIG = {
-    "name": "lmstudio-community/mistral-7b-instruct-v0.3-gguf:Q4_K_M",
-    "hf_model": "lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF",
+    "name": "huggingface.co/lmstudio-community/mistral-7b-instruct-v0.3-gguf:Q4_K_M",
+    "hf_model": "huggingface.co/lmstudio-community/Mistral-7B-Instruct-v0.3-GGUF",
     "quantization": "Q4_K_M", 
     "expected_size_gb": 4.1,  # Q4_K_M quantization size
     "baseline_tps": 70,  # Expected tokens/second from LMStudio
