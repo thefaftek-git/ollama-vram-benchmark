@@ -332,10 +332,10 @@ class OllamaVRAMBenchmark:
                     # Stop after reaching target tokens naturally
                     if tokens_generated >= target_tokens:
                         break
-                
-                # Check if generation is complete
-                if chunk.get('done', False):
-                    break
+                    
+                    # Check if generation is complete
+                    if chunk.get('done', False):
+                        break
             
             end_time = time.time()
             
