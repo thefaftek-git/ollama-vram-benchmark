@@ -13,9 +13,27 @@ from typing import Dict, List, Optional, Tuple
 
 def check_system_requirements() -> Dict[str, bool]:
     """Check if system meets requirements for benchmarking"""
+    import platform
+    
+    # Detect platform
+    is_macos = platform.system() == 'Darwin'
+    is_apple_silicon = False
+    
+    if is_macos:
+        try:
+            # Check if running on Apple Silicon
+            cpu_brand = subprocess.check_output(['sysctl', '-n', 'machdep.cpu.brand_string']).decode().strip()
+            is_apple_silicon = 'Apple' in cpu_brand
+        except:
+            try:
+                machine = platform.machine().lower()
+                is_apple_silicon = machine in ['arm64', 'aarch64']
+            except:
+                is_apple_silicon = False
+    
     requirements = {
         "ollama_installed": False,
-        "nvidia_gpu": False,
+        "memory_monitoring_available": False,
         "sufficient_ram": False,
         "python_packages": False
     }
@@ -27,16 +45,24 @@ def check_system_requirements() -> Dict[str, bool]:
     except FileNotFoundError:
         pass
     
-    # Check NVIDIA GPU
+    # Check memory monitoring capabilities (platform-specific)
+    nvidia_available = False
     try:
         result = subprocess.run(["nvidia-smi"], capture_output=True, text=True)
-        requirements["nvidia_gpu"] = result.returncode == 0
+        nvidia_available = result.returncode == 0
     except FileNotFoundError:
         pass
     
-    # Check system RAM (recommend at least 8GB for safety)
+    # Memory monitoring is available if:
+    # - NVIDIA GPU is available, OR
+    # - Running on macOS (Apple Silicon or Intel), OR
+    # - Any other platform with psutil (fallback)
+    requirements["memory_monitoring_available"] = nvidia_available or is_macos or True  # psutil works everywhere
+    
+    # Check system RAM (recommend at least 8GB for safety, 16GB+ for Apple Silicon)
     total_ram_gb = psutil.virtual_memory().total / (1024**3)
-    requirements["sufficient_ram"] = total_ram_gb >= 8
+    min_ram_gb = 16 if is_apple_silicon else 8
+    requirements["sufficient_ram"] = total_ram_gb >= min_ram_gb
     
     # Check Python packages
     try:

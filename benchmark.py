@@ -93,7 +93,9 @@ class OllamaVRAMBenchmark:
             print("✅ Intel Mac detected - using system memory monitoring")
             
         else:
-            print("⚠️  GPU monitoring not available for this platform")
+            # Other platforms - use basic system memory monitoring
+            self.gpu_monitoring_available = True
+            print("✅ Using system memory monitoring for this platform")
 
     def check_ollama_service(self) -> bool:
         """Check if Ollama service is running"""
