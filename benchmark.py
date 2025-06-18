@@ -29,7 +29,7 @@ except ImportError:
 
 class OllamaVRAMBenchmark:
     def __init__(self):
-        self.model_name = "mistral:7b-instruct-v0.3-q4_K_M"
+        self.model_name = "lmstudio-community/mistral-7b-instruct-v0.3-gguf:Q4_K_M"
         self.ollama_url = "http://localhost:11434"
         self.results = []
         self.gpu_handle = None
