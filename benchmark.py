@@ -118,7 +118,9 @@ class OllamaVRAMBenchmark:
             
             for model in models:
                 if self.model_name in model.get("name", ""):
-                    print(f"✅ Model {self.model_name} is already available")
+                    print(f"✅ Model {self.model_name} already exists and does not need to be downloaded")
+                    print(f"    Model size: {model.get('size', 'Unknown')} bytes")
+                    print(f"    Modified: {model.get('modified_at', 'Unknown')}")
                     return True
             
             print(f"📥 Downloading model {self.model_name}...")
@@ -358,27 +360,76 @@ class OllamaVRAMBenchmark:
         if not successful_results:
             return {"error": "No successful benchmarks"}
         
-        # Find performance degradation point
-        baseline_tps = successful_results[0]["tokens_per_second"]
-        degradation_threshold = baseline_tps * 0.8  # 20% performance drop
+        # Find best performance (ignoring model load time)
+        baseline_tps = max([r["tokens_per_second"] for r in successful_results])
         
-        optimal_context = successful_results[0]["context_size"]
-        max_vram_context = successful_results[-1]["context_size"]
+        # Use 5% margin of error for performance comparisons
+        performance_threshold = baseline_tps * 0.95  # Within 5% is considered equal
         
+        # Find contexts that perform within 5% margin (focusing on generation + prompt processing)
+        acceptable_results = []
         for result in successful_results:
-            if result["tokens_per_second"] < degradation_threshold:
-                break
-            optimal_context = result["context_size"]
+            tps = result["tokens_per_second"]
+            prompt_time = result.get("prompt_processing_time", 0)
+            
+            # Performance is acceptable if tokens/sec is within 5% margin
+            if tps >= performance_threshold:
+                acceptable_results.append({
+                    "context_size": result["context_size"],
+                    "tokens_per_second": tps,
+                    "prompt_processing_time": prompt_time,
+                    "gpu_mem_after": result["gpu_mem_after"],
+                    "gpu_mem_percent": result["gpu_mem_after"]/result["gpu_total"]*100,
+                    "pure_generation_time": result.get("pure_generation_time", 0),
+                    "model_load_time": result.get("model_load_and_prompt_time", 0)
+                })
+        
+        if not acceptable_results:
+            # Fallback to all results if none meet the 5% threshold
+            acceptable_results = successful_results
+        
+        # Choose the largest context size that maintains performance within 5% margin
+        optimal_result = max(acceptable_results, key=lambda x: x["context_size"])
+        max_vram_result = successful_results[-1]
+        
+        # Calculate efficiency metrics (excluding model load time)
+        efficiency_scores = []
+        for result in acceptable_results:
+            # Efficiency = tokens/sec weighted by prompt processing efficiency
+            prompt_efficiency = 1.0 / (1.0 + result["prompt_processing_time"]) if result["prompt_processing_time"] > 0 else 1.0
+            efficiency_score = result["tokens_per_second"] * prompt_efficiency
+            efficiency_scores.append({
+                "context_size": result["context_size"],
+                "efficiency_score": efficiency_score,
+                "tokens_per_second": result["tokens_per_second"],
+                "prompt_processing_time": result["prompt_processing_time"]
+            })
+        
+        best_efficiency = max(efficiency_scores, key=lambda x: x["efficiency_score"])
         
         analysis = {
-            "max_successful_context": max_vram_context,
-            "optimal_context_size": optimal_context,
+            "max_successful_context": max_vram_result["context_size"],
+            "optimal_context_size": optimal_result["context_size"],
             "baseline_performance": baseline_tps,
-            "degradation_threshold": degradation_threshold,
-            "max_gpu_memory_used": max([r["gpu_mem_after"] for r in successful_results]),
+            "performance_threshold_5pct": performance_threshold,
+            "optimal_tokens_per_second": optimal_result["tokens_per_second"],
+            "optimal_prompt_processing": optimal_result["prompt_processing_time"],
+            "optimal_gpu_memory_mb": optimal_result["gpu_mem_after"],
+            "optimal_gpu_memory_percent": optimal_result["gpu_mem_percent"],
+            "max_gpu_memory_used": max_vram_result["gpu_mem_after"],
             "total_gpu_memory": successful_results[0]["gpu_total"],
             "total_tests": len(self.results),
-            "successful_tests": len(successful_results)
+            "successful_tests": len(successful_results),
+            "efficiency_sweet_spot": best_efficiency["context_size"],
+            "acceptable_contexts_within_5pct": len(acceptable_results),
+            "recommendations": {
+                "recommended_context_size": optimal_result["context_size"],
+                "expected_performance": f"{optimal_result['tokens_per_second']:.1f} tokens/sec",
+                "expected_prompt_processing": f"{optimal_result['prompt_processing_time']:.3f}s",
+                "vram_usage": f"{optimal_result['gpu_mem_percent']:.1f}% ({optimal_result['gpu_mem_after']:,} MB)",
+                "performance_margin": f"Within 5% of peak performance ({baseline_tps:.1f} tokens/sec)",
+                "efficiency_note": f"Best efficiency sweet spot at {best_efficiency['context_size']:,} context size"
+            }
         }
         
         return analysis
