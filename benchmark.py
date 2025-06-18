@@ -472,13 +472,7 @@ class OllamaVRAMBenchmark:
                 print(f"    🖥️  VRAM Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
                 print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
                 
-                # Show sample conversation from first successful result  
-                if successful_results:
-                    print(f"    🔍 Debug: conversation_log exists: {'conversation_log' in successful_results[0]}")
-                    if 'conversation_log' in successful_results[0]:
-                        print(f"    🔍 Debug: conversation_log length: {len(successful_results[0]['conversation_log'])}")
-                        print(f"    🔍 Debug: conversation_mode: {successful_results[0].get('conversation_mode', 'Not set')}")
-                
+                # Show sample conversation from first successful result
                 if successful_results and 'conversation_log' in successful_results[0] and successful_results[0]['conversation_log']:
                     print(f"    💬 Sample Conversation:")
                     sample_log = successful_results[0]['conversation_log']
@@ -693,6 +687,24 @@ class OllamaVRAMBenchmark:
 
 
 def main():
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='VRAM Benchmark for Ollama Models')
+    parser.add_argument('--conversation', action='store_true', 
+                        help='Enable conversation mode for multi-turn benchmarks')
+    parser.add_argument('--turns', type=int, default=3,
+                        help='Number of conversation turns (default: 3)')
+    parser.add_argument('--start-context', type=int, default=2048,
+                        help='Starting context size (default: 2048)')
+    parser.add_argument('--max-context', type=int, default=32768,
+                        help='Maximum context size (default: 32768)')
+    parser.add_argument('--step-size', type=int, default=2048,
+                        help='Step size for context increments (default: 2048)')
+    parser.add_argument('--iterations', type=int, default=5,
+                        help='Number of iterations per context size (default: 5)')
+    
+    args = parser.parse_args()
+    
     benchmark = OllamaVRAMBenchmark()
     
     # Start Ollama service
@@ -716,9 +728,12 @@ def main():
     
     try:
         results = benchmark.run_benchmark(
-            start_context=2048,
-            max_context=32768,
-            step_size=2048
+            start_context=args.start_context,
+            max_context=args.max_context,
+            step_size=args.step_size,
+            iterations=args.iterations,
+            conversation_mode=args.conversation,
+            conversation_turns=args.turns
         )
         
         print("\n" + "="*60)
