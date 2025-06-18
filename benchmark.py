@@ -472,7 +472,13 @@ class OllamaVRAMBenchmark:
                 print(f"    🖥️  VRAM Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
                 print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
                 
-                # Show sample conversation from first successful result
+                # Show sample conversation from first successful result  
+                if successful_results:
+                    print(f"    🔍 Debug: conversation_log exists: {'conversation_log' in successful_results[0]}")
+                    if 'conversation_log' in successful_results[0]:
+                        print(f"    🔍 Debug: conversation_log length: {len(successful_results[0]['conversation_log'])}")
+                        print(f"    🔍 Debug: conversation_mode: {successful_results[0].get('conversation_mode', 'Not set')}")
+                
                 if successful_results and 'conversation_log' in successful_results[0] and successful_results[0]['conversation_log']:
                     print(f"    💬 Sample Conversation:")
                     sample_log = successful_results[0]['conversation_log']
