@@ -77,6 +77,36 @@ class OllamaVRAMBenchmark:
             print(f"Error starting Ollama service: {e}")
             return False
 
+    def warm_up_model(self) -> bool:
+        """Pre-warm the model to match interactive performance"""
+        print("🔥 Warming up model...")
+        
+        try:
+            # Simple warm-up request
+            warm_up_data = {
+                "model": self.model_name,
+                "prompt": "Hello, please respond with just 'Ready'",
+                "stream": False,
+                "options": {
+                    "num_predict": 5,
+                    "temperature": 0.1
+                }
+            }
+            
+            response = requests.post(f"{self.ollama_url}/api/generate", 
+                                   json=warm_up_data, timeout=60)
+            
+            if response.status_code == 200:
+                print("✅ Model warmed up successfully")
+                return True
+            else:
+                print(f"⚠️ Warm-up completed with status {response.status_code}")
+                return True  # Continue anyway
+                
+        except Exception as e:
+            print(f"⚠️ Model warm-up failed: {e} - continuing anyway")
+            return True  # Don't fail the entire benchmark for warm-up issues
+
     def download_model(self) -> bool:
         """Download the Mistral model if not already available"""
         print(f"Checking if model {self.model_name} is available...")
@@ -152,13 +182,12 @@ class OllamaVRAMBenchmark:
         except:
             return 0, 0
 
-    def generate_text(self, context_size: int, num_tokens: int = 100) -> Dict:
+    def generate_text(self, context_size: int, target_tokens: int = 100) -> Dict:
         """Generate text with specified context size and measure performance"""
         
-        # Create a prompt that will result in the desired context size
-        base_prompt = "You are a helpful AI assistant. Please provide detailed explanations."
-        filler_text = "This is additional context text to increase the context window size. " * (context_size // 80)
-        prompt = base_prompt + "\n\n" + filler_text + "\n\nPlease write a short story about artificial intelligence."
+        # Create a more natural prompt that results in the desired context size
+        from utils import generate_test_prompt
+        prompt = generate_test_prompt(context_size)
         
         # Measure memory before generation
         gpu_mem_before, gpu_total = self.get_gpu_memory_info()
@@ -167,37 +196,75 @@ class OllamaVRAMBenchmark:
         request_data = {
             "model": self.model_name,
             "prompt": prompt,
-            "stream": False,
+            "stream": True,  # Use streaming for better performance
             "options": {
-                "num_predict": num_tokens,
                 "temperature": 0.7,
-                "num_ctx": context_size
+                "num_ctx": context_size,
+                # Remove num_predict to allow natural generation
+                "top_k": 40,
+                "top_p": 0.9,
+                "repeat_penalty": 1.1
             }
         }
         
         start_time = time.time()
+        tokens_generated = 0
+        response_text = ""
+        first_token_time = None
         
         try:
             response = requests.post(f"{self.ollama_url}/api/generate", 
-                                   json=request_data, timeout=300)
+                                   json=request_data, stream=True, timeout=300)
             response.raise_for_status()
             
+            # Process streaming response
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        data = json.loads(line)
+                        
+                        if "response" in data:
+                            chunk = data["response"]
+                            response_text += chunk
+                            
+                            # Count tokens (approximate by splitting on whitespace)
+                            new_tokens = len(chunk.split())
+                            tokens_generated += new_tokens
+                            
+                            # Record first token time
+                            if first_token_time is None and tokens_generated > 0:
+                                first_token_time = time.time()
+                            
+                            # Stop after reaching target tokens naturally
+                            if tokens_generated >= target_tokens:
+                                break
+                                
+                        # Check if generation is complete
+                        if data.get("done", False):
+                            break
+                            
+                    except json.JSONDecodeError:
+                        continue
+            
             end_time = time.time()
-            result = response.json()
             
             # Measure memory after generation
             gpu_mem_after, _ = self.get_gpu_memory_info()
             cpu_mem_after = psutil.Process().memory_info().rss // (1024 * 1024)
             
             generation_time = end_time - start_time
-            tokens_generated = len(result.get("response", "").split())
-            tokens_per_second = tokens_generated / generation_time if generation_time > 0 else 0
+            first_token_latency = (first_token_time - start_time) if first_token_time else 0
+            
+            # Calculate more accurate token count
+            final_tokens = len(response_text.split())
+            tokens_per_second = final_tokens / generation_time if generation_time > 0 else 0
             
             return {
                 "context_size": context_size,
                 "success": True,
                 "generation_time": generation_time,
-                "tokens_generated": tokens_generated,
+                "first_token_latency": first_token_latency,
+                "tokens_generated": final_tokens,
                 "tokens_per_second": tokens_per_second,
                 "gpu_mem_before": gpu_mem_before,
                 "gpu_mem_after": gpu_mem_after,
@@ -206,9 +273,8 @@ class OllamaVRAMBenchmark:
                 "cpu_mem_before": cpu_mem_before,
                 "cpu_mem_after": cpu_mem_after,
                 "cpu_mem_used": cpu_mem_after - cpu_mem_before,
-                "response_length": len(result.get("response", "")),
-                "eval_count": result.get("eval_count", 0),
-                "eval_duration": result.get("eval_duration", 0)
+                "response_length": len(response_text),
+                "response_text": response_text[:200] + "..." if len(response_text) > 200 else response_text
             }
             
         except Exception as e:
@@ -247,6 +313,7 @@ class OllamaVRAMBenchmark:
                 print(f"  ⚡ Performance: {result['tokens_per_second']:.1f} tokens/sec")
                 print(f"  🖥️  VRAM Usage: {result['gpu_mem_after']:,}/{result['gpu_total']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
                 print(f"  ⏱️  Generation time: {result['generation_time']:.2f}s")
+                print(f"  🚀 First token latency: {result['first_token_latency']:.3f}s")
                 print(f"  📝 Tokens generated: {result['tokens_generated']}")
                 
                 # Show progress bar
@@ -397,6 +464,10 @@ def main():
     if not benchmark.download_model():
         print("Failed to download model")
         sys.exit(1)
+    
+    # Warm up model
+    if not benchmark.warm_up_model():
+        print("Model warm-up failed, but continuing...")
     
     # Run benchmark
     print("\n" + "="*60)

@@ -122,42 +122,43 @@ def estimate_context_memory_usage(context_size: int, model_size_gb: float = 4.1)
     }
 
 
-def generate_test_prompt(target_length: int) -> str:
-    """Generate a test prompt of approximately target length"""
+def generate_test_prompt(target_context_size: int) -> str:
+    """Generate a more natural test prompt that targets specific context size"""
     
     base_prompt = """You are a helpful AI assistant. I need you to help me understand artificial intelligence and machine learning concepts. Please provide detailed explanations when answering questions.
 
-Context: Artificial intelligence has been developing rapidly in recent years, with significant advances in natural language processing, computer vision, and machine learning algorithms. Large language models like GPT, Claude, and others have shown remarkable capabilities in understanding and generating human-like text.
+Context: Artificial intelligence has been developing rapidly in recent years, with significant advances in natural language processing, computer vision, and machine learning algorithms. Large language models like GPT, Claude, and others have shown remarkable capabilities in understanding and generating human-like text."""
 
-"""
+    # Add realistic technical content instead of simple filler
+    technical_content = """
+
+Machine learning encompasses various paradigms including supervised learning where models learn from labeled data, unsupervised learning which discovers patterns in unlabeled data, and reinforcement learning where agents learn through environmental interaction. Deep neural networks, inspired by biological neural systems, consist of interconnected layers of artificial neurons that process information through weighted connections and activation functions.
+
+Transformer architectures have revolutionized natural language processing through their attention mechanisms, which allow models to focus on relevant parts of input sequences. These models use multi-head attention to capture different types of relationships between tokens, enabling superior performance on tasks like translation, summarization, and text generation.
+
+Computer vision has similarly benefited from deep learning advances, with convolutional neural networks excelling at image recognition tasks through hierarchical feature extraction. Residual connections, batch normalization, and attention mechanisms have further improved model performance and training stability.
+
+The training process for large language models involves processing massive datasets containing billions of tokens, requiring sophisticated optimization techniques like gradient clipping, learning rate scheduling, and distributed training across multiple GPUs. Model architectures continue to evolve with innovations in attention mechanisms, positional encoding, and normalization techniques."""
+
+    # Calculate how much additional content we need (rough token estimation: ~4 chars per token)
+    current_tokens = len((base_prompt + technical_content)) // 4
+    target_tokens = target_context_size - 50  # Leave room for the final question
     
-    # Add filler text to reach target length
-    filler_unit = "This is additional context text designed to increase the total context window size for testing purposes. It contains various topics and information to simulate a realistic conversation history. "
-    
-    current_length = len(base_prompt)
-    remaining_length = target_length - current_length - 200  # Leave room for the actual question
-    
-    if remaining_length > 0:
-        num_units = remaining_length // len(filler_unit)
-        filler_text = filler_unit * num_units
+    if current_tokens < target_tokens:
+        # Add more technical content to reach target size
+        additional_content = technical_content
+        while current_tokens < target_tokens:
+            additional_content += technical_content
+            current_tokens = len((base_prompt + additional_content)) // 4
         
-        # Add some variety to the filler
-        topics = [
-            "Machine learning algorithms include supervised, unsupervised, and reinforcement learning approaches. ",
-            "Neural networks consist of interconnected nodes that process information in layers. ",
-            "Deep learning has revolutionized fields like computer vision and natural language processing. ",
-            "Transformer architectures have become the foundation for many modern AI systems. ",
-            "Training large models requires significant computational resources and careful optimization. "
-        ]
-        
-        for i in range(0, num_units, 5):
-            filler_text = filler_text.replace(filler_unit, topics[i % len(topics)], 1)
+        full_content = base_prompt + additional_content
     else:
-        filler_text = ""
+        full_content = base_prompt + technical_content
     
-    question = "\n\nGiven this context, please write a detailed explanation about how attention mechanisms work in transformer models. Include technical details and examples."
+    # Add the final question
+    final_question = "\n\nGiven this context, please write a detailed explanation about how attention mechanisms work in transformer models. Include technical details and examples."
     
-    return base_prompt + filler_text + question
+    return full_content + final_question
 
 
 def format_bytes(bytes_val: int) -> str:
