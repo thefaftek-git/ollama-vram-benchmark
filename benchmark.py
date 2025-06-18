@@ -33,15 +33,16 @@ class OllamaVRAMBenchmark:
         self.ollama_url = "http://localhost:11434"
         self.results = []
         self.gpu_handle = None
+        self.nvidia_available = NVIDIA_AVAILABLE
         
-        if NVIDIA_AVAILABLE:
+        if self.nvidia_available:
             try:
                 pynvml.nvmlInit()
                 self.gpu_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
                 print("GPU monitoring initialized")
             except Exception as e:
                 print(f"GPU monitoring failed: {e}")
-                NVIDIA_AVAILABLE = False
+                self.nvidia_available = False
 
     def check_ollama_service(self) -> bool:
         """Check if Ollama service is running"""
@@ -110,7 +111,7 @@ class OllamaVRAMBenchmark:
 
     def get_gpu_memory_info(self) -> Tuple[int, int]:
         """Get GPU memory usage in MB"""
-        if not NVIDIA_AVAILABLE or not self.gpu_handle:
+        if not self.nvidia_available or not self.gpu_handle:
             return 0, 0
         
         try:
