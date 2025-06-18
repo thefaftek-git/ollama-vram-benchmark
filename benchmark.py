@@ -209,6 +209,7 @@ class OllamaVRAMBenchmark:
         
         # Initialize conversation variables
         conversation_history = []
+        conversation_log = []  # Track actual exchanges for display
         total_response_text = ""
         
         # Measure memory before generation
@@ -230,6 +231,7 @@ class OllamaVRAMBenchmark:
                 from utils import generate_conversation_starter, generate_followup_question
                 initial_prompt = generate_conversation_starter(context_size)
                 conversation_history.append({"role": "user", "content": initial_prompt})
+                conversation_log.append({"type": "user", "content": initial_prompt})
                 
                 for turn in range(conversation_turns):
                     # Build conversation context
@@ -248,6 +250,7 @@ class OllamaVRAMBenchmark:
                         followup = generate_followup_question(turn - 1)
                         conversation_text += f"\nUser: {followup}"
                         conversation_history.append({"role": "user", "content": followup})
+                        conversation_log.append({"type": "user", "content": followup})
                         current_prompt = conversation_text
                     
                     # Generate response for this turn
@@ -287,6 +290,7 @@ class OllamaVRAMBenchmark:
                     
                     # Add assistant response to conversation history
                     conversation_history.append({"role": "assistant", "content": turn_response.strip()})
+                    conversation_log.append({"type": "assistant", "content": turn_response.strip()})
                     
                     print(f"      Turn {turn + 1}: Generated {len(turn_response.split()) * 1.3:.0f} tokens")
             
@@ -374,7 +378,8 @@ class OllamaVRAMBenchmark:
                 "response_length": len(total_response_text),
                 "response_text": total_response_text[:200] + "..." if len(total_response_text) > 200 else total_response_text,
                 "conversation_mode": conversation_mode,
-                "conversation_turns": conversation_turns if conversation_mode else 1
+                "conversation_turns": conversation_turns if conversation_mode else 1,
+                "conversation_log": conversation_log if conversation_mode else []
             }
             
         except Exception as e:
@@ -466,6 +471,20 @@ class OllamaVRAMBenchmark:
                 print(f"    📝 Tokens Generated: {avg_tokens:.0f} (avg), range: {min_tokens}-{max_tokens}")
                 print(f"    🖥️  VRAM Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
                 print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
+                
+                # Show sample conversation from first successful result
+                if successful_results and 'conversation_log' in successful_results[0] and successful_results[0]['conversation_log']:
+                    print(f"    💬 Sample Conversation:")
+                    sample_log = successful_results[0]['conversation_log']
+                    for i, entry in enumerate(sample_log[:2]):  # Show first 2 exchanges
+                        if entry['type'] == 'user':
+                            user_text = entry['content'][:100] + "..." if len(entry['content']) > 100 else entry['content']
+                            print(f"       👤 User: {user_text}")
+                        elif entry['type'] == 'assistant':
+                            assistant_text = entry['content'][:150] + "..." if len(entry['content']) > 150 else entry['content']
+                            print(f"       🤖 Assistant: {assistant_text}")
+                    if len(sample_log) > 4:
+                        print(f"       ... ({len(sample_log) - 4} more exchanges)")
                 
                 # Show overall progress
                 progress = context_idx / total_context_tests * 100
