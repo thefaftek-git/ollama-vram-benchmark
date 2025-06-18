@@ -11,6 +11,8 @@ This tool benchmarks the Mistral-7B-Instruct-v0.3 model (Q4_K_M quantization) to
 - Progressive context size testing
 - VRAM usage monitoring
 - Performance metrics collection
+- Multiple iterations for statistical accuracy
+- Conversation mode for realistic multi-turn benchmarking
 - Automatic detection of VRAM overflow point
 
 ## Usage
@@ -26,8 +28,42 @@ ollama serve &
 ```
 
 3. Run benchmark:
+
+### Quick Start
 ```bash
-python benchmark.py
+python run_benchmark.py --quick
+```
+
+### Full Benchmark
+```bash
+python run_benchmark.py --model mistral:7b-instruct-q4_K_M
+```
+
+### Conversation Mode
+For more realistic benchmarking with multi-turn dialogues:
+```bash
+# Run with conversation mode (3 turns per test)
+python run_benchmark.py --conversation
+
+# Custom number of conversation turns
+python run_benchmark.py --conversation --turns 5
+```
+
+### Advanced Options
+```bash
+# Custom context range and iterations
+python run_benchmark.py \
+    --model mistral:7b-instruct-q4_K_M \
+    --start 2048 \
+    --max 16384 \
+    --step 2048 \
+    --iterations 3
+
+# Conversation mode with custom settings
+python run_benchmark.py \
+    --conversation \
+    --turns 4 \
+    --iterations 5
 ```
 
 ## Output

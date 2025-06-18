@@ -197,12 +197,19 @@ class OllamaVRAMBenchmark:
         except:
             return 0, 0
 
-    def generate_text(self, context_size: int, target_tokens: int = 100) -> Dict:
-        """Generate text with specified context size and measure performance"""
+    def generate_text(self, context_size: int, target_tokens: int = 100, conversation_mode: bool = False, conversation_turns: int = 3) -> Dict:
+        """Generate text with specified context size and measure performance
         
-        # Create a more natural prompt that results in the desired context size
-        from utils import generate_test_prompt
-        prompt = generate_test_prompt(context_size)
+        Args:
+            context_size: Target context window size
+            target_tokens: Target number of tokens to generate (ignored in conversation mode)
+            conversation_mode: If True, simulate a multi-turn conversation
+            conversation_turns: Number of conversation turns to simulate
+        """
+        
+        # Initialize conversation variables
+        conversation_history = []
+        total_response_text = ""
         
         # Measure memory before generation
         gpu_mem_before, gpu_total = self.get_gpu_memory_info()
@@ -213,45 +220,114 @@ class OllamaVRAMBenchmark:
         prompt_processed_time = None
         first_token_time = None
         tokens_generated = 0
-        response_text = ""
         
         try:
             # Use ollama package for better control and timing
             client = ollama.Client(host=self.ollama_url)
             
-            response_stream = client.generate(
-                model=self.model_name,
-                prompt=prompt,
-                stream=True,
-                options={
-                    "temperature": 0.8,
-                    "num_ctx": context_size,
-                    "top_k": 40,
-                    "top_p": 0.95,
-                    "min_p": 0.05,
-                    "repeat_penalty": 1.1
-                }
-            )
+            if conversation_mode:
+                # Multi-turn conversation mode
+                from utils import generate_conversation_starter, generate_followup_question
+                initial_prompt = generate_conversation_starter(context_size)
+                conversation_history.append({"role": "user", "content": initial_prompt})
+                
+                for turn in range(conversation_turns):
+                    # Build conversation context
+                    if turn == 0:
+                        # First turn uses the initial prompt
+                        current_prompt = initial_prompt
+                    else:
+                        # Subsequent turns build on conversation history
+                        conversation_text = "\n".join([
+                            f"User: {msg['content']}" if msg['role'] == 'user' 
+                            else f"Assistant: {msg['content']}" 
+                            for msg in conversation_history
+                        ])
+                        
+                        # Add a follow-up question
+                        followup = generate_followup_question(turn - 1)
+                        conversation_text += f"\nUser: {followup}"
+                        conversation_history.append({"role": "user", "content": followup})
+                        current_prompt = conversation_text
+                    
+                    # Generate response for this turn
+                    response_stream = client.generate(
+                        model=self.model_name,
+                        prompt=current_prompt,
+                        stream=True,
+                        options={
+                            "temperature": 0.8,
+                            "num_ctx": context_size,
+                            "top_k": 40,
+                            "top_p": 0.95,
+                            "min_p": 0.05,
+                            "repeat_penalty": 1.1
+                        }
+                    )
+                    
+                    turn_response = ""
+                    
+                    # Process streaming response for this turn
+                    for chunk in response_stream:
+                        current_time = time.time()
+                        
+                        if prompt_processed_time is None:
+                            prompt_processed_time = current_time
+                        
+                        if first_token_time is None:
+                            first_token_time = current_time
+                        
+                        # Count tokens (approximate - each chunk may have multiple tokens)
+                        if 'response' in chunk:
+                            chunk_text = chunk['response']
+                            turn_response += chunk_text
+                            total_response_text += chunk_text
+                            # Rough token count (words * 1.3 is a reasonable approximation)
+                            tokens_generated += len(chunk_text.split()) * 1.3
+                    
+                    # Add assistant response to conversation history
+                    conversation_history.append({"role": "assistant", "content": turn_response.strip()})
+                    
+                    print(f"      Turn {turn + 1}: Generated {len(turn_response.split()) * 1.3:.0f} tokens")
             
-            # Process streaming response with detailed timing
-            for chunk in response_stream:
-                current_time = time.time()
+            else:
+                # Single prompt/response mode (original behavior)
+                from utils import generate_test_prompt
+                prompt = generate_test_prompt(context_size)
                 
-                # Mark when prompt processing is done (first chunk received)
-                if prompt_processed_time is None:
-                    prompt_processed_time = current_time
+                response_stream = client.generate(
+                    model=self.model_name,
+                    prompt=prompt,
+                    stream=True,
+                    options={
+                        "temperature": 0.8,
+                        "num_ctx": context_size,
+                        "top_k": 40,
+                        "top_p": 0.95,
+                        "min_p": 0.05,
+                        "repeat_penalty": 1.1
+                    }
+                )
                 
-                if 'response' in chunk:
-                    token_chunk = chunk['response']
-                    response_text += token_chunk
+                # Process streaming response for single mode
+                for chunk in response_stream:
+                    current_time = time.time()
                     
-                    # Count tokens (approximate by splitting on whitespace)
-                    new_tokens = len(token_chunk.split())
-                    tokens_generated += new_tokens
+                    # Mark when prompt processing is done (first chunk received)
+                    if prompt_processed_time is None:
+                        prompt_processed_time = current_time
                     
-                    # Record first actual token time
-                    if first_token_time is None and tokens_generated > 0:
-                        first_token_time = current_time
+                    if 'response' in chunk:
+                        token_chunk = chunk['response']
+                        total_response_text += token_chunk
+                        
+                        # Count tokens (approximate by splitting on whitespace)
+                        new_tokens = len(token_chunk.split())
+                        tokens_generated += new_tokens
+                        
+                        # Record first actual token time
+                        if first_token_time is None and tokens_generated > 0:
+                            first_token_time = current_time
                     
                     # Stop after reaching target tokens naturally
                     if tokens_generated >= target_tokens:
@@ -275,7 +351,7 @@ class OllamaVRAMBenchmark:
             pure_generation_time = (end_time - first_token_time) if first_token_time else 0
             
             # Calculate tokens per second for pure generation (what you care about)
-            final_tokens = len(response_text.split())
+            final_tokens = len(total_response_text.split())
             tokens_per_second = final_tokens / pure_generation_time if pure_generation_time > 0 else 0
             
             return {
@@ -295,8 +371,10 @@ class OllamaVRAMBenchmark:
                 "cpu_mem_before": cpu_mem_before,
                 "cpu_mem_after": cpu_mem_after,
                 "cpu_mem_used": cpu_mem_after - cpu_mem_before,
-                "response_length": len(response_text),
-                "response_text": response_text[:200] + "..." if len(response_text) > 200 else response_text
+                "response_length": len(total_response_text),
+                "response_text": total_response_text[:200] + "..." if len(total_response_text) > 200 else total_response_text,
+                "conversation_mode": conversation_mode,
+                "conversation_turns": conversation_turns if conversation_mode else 1
             }
             
         except Exception as e:
@@ -312,8 +390,15 @@ class OllamaVRAMBenchmark:
                      start_context: int = 2048, 
                      max_context: int = 32768, 
                      step_size: int = 2048,
-                     iterations: int = 5) -> List[Dict]:
-        """Run benchmark across different context sizes with multiple iterations"""
+                     iterations: int = 5,
+                     conversation_mode: bool = False,
+                     conversation_turns: int = 3) -> List[Dict]:
+        """Run benchmark across different context sizes with multiple iterations
+        
+        Args:
+            conversation_mode: If True, simulate multi-turn conversations
+            conversation_turns: Number of conversation turns to simulate
+        """
         
         context_sizes = list(range(start_context, max_context + 1, step_size))
         total_context_tests = len(context_sizes)
@@ -338,7 +423,7 @@ class OllamaVRAMBenchmark:
                 print(f"\n🔍 Test {iteration_count}/{total_iterations}: Context {context_size:,} - Iteration {iteration}/{iterations}")
                 print(f"⏳ Generating text with {context_size:,} token context...")
                 
-                result = self.generate_text(context_size)
+                result = self.generate_text(context_size, conversation_mode=conversation_mode, conversation_turns=conversation_turns)
                 result["iteration"] = iteration
                 result["context_test_number"] = context_idx
                 context_results.append(result)

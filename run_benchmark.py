@@ -66,6 +66,19 @@ Examples:
     )
     
     parser.add_argument(
+        "--conversation", 
+        action="store_true",
+        help="Use conversation mode instead of single prompt/response"
+    )
+    
+    parser.add_argument(
+        "--turns", 
+        type=int, 
+        default=3,
+        help="Number of conversation turns in conversation mode (default: 3)"
+    )
+    
+    parser.add_argument(
         "--quick", 
         action="store_true",
         help="Run quick test with smaller range (2048-8192, step 2048)"
@@ -145,6 +158,10 @@ def main():
     print(f"Context range: {args.start} to {args.max} (step: {args.step})")
     print(f"Tokens per test: {args.tokens}")
     print(f"Iterations per context: {args.iterations}")
+    if args.conversation:
+        print(f"Mode: Conversation ({args.turns} turns per test)")
+    else:
+        print(f"Mode: Single prompt/response")
     print(f"Expected hardware: {HARDWARE_CONFIG['gpu_name']} ({HARDWARE_CONFIG['vram_gb']}GB)")
     print()
     
@@ -181,7 +198,9 @@ def main():
             start_context=args.start,
             max_context=args.max,
             step_size=args.step,
-            iterations=args.iterations
+            iterations=args.iterations,
+            conversation_mode=args.conversation,
+            conversation_turns=args.turns
         )
         
         if not results:

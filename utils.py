@@ -200,3 +200,44 @@ def print_system_info():
     print()
 
 
+def generate_conversation_starter(target_context_size: int) -> str:
+    """Generate a conversation starter that encourages longer responses"""
+    
+    starters = [
+        "I'm planning a complex software project and need advice. The project involves creating a distributed system with microservices, real-time data processing, user authentication, and machine learning components. Can you help me understand the architecture decisions I need to make?",
+        
+        "I'm writing a research paper on the environmental impact of technology. I need to explore topics like e-waste, energy consumption of data centers, sustainable computing practices, and green technology innovations. What are the key points I should cover?",
+        
+        "I'm designing a game that combines strategy, role-playing, and simulation elements. The setting is a space colony where players manage resources, develop technology, engage in diplomacy, and explore unknown territories. What mechanics would make this engaging?",
+        
+        "I'm learning about artificial intelligence and want to understand different approaches. Can you explain machine learning, deep learning, neural networks, natural language processing, computer vision, and how they're applied in real-world scenarios?",
+        
+        "I'm interested in sustainable living and want to make significant changes. This includes renewable energy, organic gardening, waste reduction, sustainable transportation, ethical consumption, and community building. Where should I start?"
+    ]
+    
+    # Select based on context size for variety
+    import hashlib
+    hash_val = int(hashlib.md5(str(target_context_size).encode()).hexdigest(), 16)
+    starter = starters[hash_val % len(starters)]
+    
+    return starter
+
+
+def generate_followup_question(turn_number: int) -> str:
+    """Generate follow-up questions for conversation turns"""
+    
+    questions = [
+        "That's very helpful! Can you elaborate on the most important aspects you mentioned? I'd like to understand the practical steps and potential challenges involved.",
+        
+        "Interesting points! What would you recommend as the best practices or most effective approaches? Are there any common mistakes I should avoid?",
+        
+        "Thank you for the detailed explanation! How would you prioritize these different elements? What should I focus on first, and how do they interconnect?",
+        
+        "This gives me a great foundation to work with! Can you provide some specific examples or case studies that illustrate these concepts in action? What have others done successfully?",
+        
+        "Excellent insights! What tools, resources, or next steps would you recommend? How can I continue learning and implementing these ideas effectively?"
+    ]
+    
+    return questions[turn_number % len(questions)]
+
+
