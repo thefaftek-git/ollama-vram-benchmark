@@ -21,9 +21,11 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_benchmark.py                          # Run with default settings
+  python run_benchmark.py                          # Run with default settings (5 iterations per context)
   python run_benchmark.py --start 4096 --max 16384 --step 4096  # Custom range
   python run_benchmark.py --quick                  # Quick test mode
+  python run_benchmark.py --iterations 10          # More iterations for higher accuracy
+  python run_benchmark.py --iterations 1           # Single iteration for speed
   python run_benchmark.py --info                   # Show system info only
         """
     )
@@ -54,6 +56,13 @@ Examples:
         type=int, 
         default=BENCHMARK_CONFIG["num_tokens_generate"],
         help=f"Number of tokens to generate per test (default: {BENCHMARK_CONFIG['num_tokens_generate']})"
+    )
+    
+    parser.add_argument(
+        "--iterations", 
+        type=int, 
+        default=5,
+        help="Number of iterations to run per context size for statistical accuracy (default: 5)"
     )
     
     parser.add_argument(
@@ -135,6 +144,7 @@ def main():
     print(f"Model: {args.model}")
     print(f"Context range: {args.start} to {args.max} (step: {args.step})")
     print(f"Tokens per test: {args.tokens}")
+    print(f"Iterations per context: {args.iterations}")
     print(f"Expected hardware: {HARDWARE_CONFIG['gpu_name']} ({HARDWARE_CONFIG['vram_gb']}GB)")
     print()
     
@@ -170,7 +180,8 @@ def main():
         results = benchmark.run_benchmark(
             start_context=args.start,
             max_context=args.max,
-            step_size=args.step
+            step_size=args.step,
+            iterations=args.iterations
         )
         
         if not results:

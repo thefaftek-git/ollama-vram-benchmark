@@ -306,51 +306,86 @@ class OllamaVRAMBenchmark:
     def run_benchmark(self, 
                      start_context: int = 2048, 
                      max_context: int = 32768, 
-                     step_size: int = 2048) -> List[Dict]:
-        """Run benchmark across different context sizes"""
+                     step_size: int = 2048,
+                     iterations: int = 5) -> List[Dict]:
+        """Run benchmark across different context sizes with multiple iterations"""
         
         context_sizes = list(range(start_context, max_context + 1, step_size))
-        total_tests = len(context_sizes)
+        total_context_tests = len(context_sizes)
+        total_iterations = total_context_tests * iterations
         
         print("🚀 Starting VRAM benchmark...")
         print(f"📊 Context size range: {start_context:,} to {max_context:,} (step: {step_size:,})")
-        print(f"🔢 Total tests to run: {total_tests}")
+        print(f"🔄 Iterations per context: {iterations}")
+        print(f"🔢 Total tests to run: {total_context_tests} context sizes × {iterations} iterations = {total_iterations} tests")
         print("=" * 60)
         
-        for i, context_size in enumerate(context_sizes, 1):
-            print(f"\n🔍 Test {i}/{total_tests}: Context size {context_size:,}")
-            print(f"⏳ Generating text with {context_size:,} token context...")
+        iteration_count = 0
+        
+        for context_idx, context_size in enumerate(context_sizes, 1):
+            print(f"\n📏 Context Size {context_idx}/{total_context_tests}: {context_size:,} tokens")
+            print(f"Running {iterations} iterations for statistical accuracy...")
             
-            result = self.generate_text(context_size)
-            self.results.append(result)
+            context_results = []
             
-            if result["success"]:
-                # Show success with detailed metrics
-                print(f"  ✅ SUCCESS")
-                print(f"  ⚡ Performance: {result['tokens_per_second']:.1f} tokens/sec (pure generation)")
-                print(f"  🖥️  VRAM Usage: {result['gpu_mem_after']:,}/{result['gpu_total']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
-                print(f"  📝 Tokens generated: {result['tokens_generated']}")
-                print(f"  ⏱️  Timing breakdown:")
-                print(f"      🔄 Model load + setup: {result['model_load_and_prompt_time']:.3f}s")
-                print(f"      🧠 Prompt processing: {result['prompt_processing_time']:.3f}s") 
-                print(f"      🚀 Pure generation: {result['pure_generation_time']:.3f}s")
-                print(f"      📊 Total time: {result['total_time']:.3f}s")
+            for iteration in range(1, iterations + 1):
+                iteration_count += 1
+                print(f"\n🔍 Test {iteration_count}/{total_iterations}: Context {context_size:,} - Iteration {iteration}/{iterations}")
+                print(f"⏳ Generating text with {context_size:,} token context...")
                 
-                # Show progress bar
-                progress = i / total_tests * 100
+                result = self.generate_text(context_size)
+                result["iteration"] = iteration
+                result["context_test_number"] = context_idx
+                context_results.append(result)
+                self.results.append(result)
+                
+                if result["success"]:
+                    # Show individual test result
+                    print(f"    ✅ Iteration {iteration}: {result['tokens_per_second']:.1f} tokens/sec")
+                    print(f"    🖥️  VRAM: {result['gpu_mem_after']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
+                    print(f"    ⏱️  Times: Gen={result['pure_generation_time']:.3f}s, Prompt={result['prompt_processing_time']:.3f}s")
+                else:
+                    print(f"    ❌ Iteration {iteration} FAILED: {result.get('error', 'Unknown error')}")
+                    print(f"    🛑 Stopping benchmark - likely reached VRAM limit")
+                    return self.results
+            
+            # Calculate and show aggregated statistics for this context size
+            successful_results = [r for r in context_results if r["success"]]
+            
+            if successful_results:
+                # Calculate statistics
+                tokens_per_sec = [r["tokens_per_second"] for r in successful_results]
+                prompt_times = [r["prompt_processing_time"] for r in successful_results]
+                generation_times = [r["pure_generation_time"] for r in successful_results]
+                vram_usage = [r["gpu_mem_after"] for r in successful_results]
+                
+                avg_tps = sum(tokens_per_sec) / len(tokens_per_sec)
+                min_tps = min(tokens_per_sec)
+                max_tps = max(tokens_per_sec)
+                avg_prompt_time = sum(prompt_times) / len(prompt_times)
+                avg_vram = sum(vram_usage) / len(vram_usage)
+                vram_percent = avg_vram / successful_results[0]["gpu_total"] * 100
+                
+                print(f"\n📊 CONTEXT {context_size:,} SUMMARY ({len(successful_results)}/{iterations} successful):")
+                print(f"    ⚡ Performance: {avg_tps:.1f} tokens/sec (avg), range: {min_tps:.1f}-{max_tps:.1f}")
+                print(f"    🖥️  VRAM Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
+                print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
+                
+                # Show overall progress
+                progress = context_idx / total_context_tests * 100
                 bar_length = 30
-                filled_length = int(bar_length * i // total_tests)
+                filled_length = int(bar_length * context_idx // total_context_tests)
                 bar = "█" * filled_length + "░" * (bar_length - filled_length)
-                print(f"  📈 Progress: [{bar}] {progress:.1f}% ({i}/{total_tests})")
+                print(f"    📈 Progress: [{bar}] {progress:.1f}% ({context_idx}/{total_context_tests} context sizes)")
                 
             else:
-                print(f"  ❌ FAILED: {result.get('error', 'Unknown error')}")
-                print(f"  🛑 Stopping benchmark - likely reached VRAM limit")
+                print(f"\n❌ ALL ITERATIONS FAILED for context size {context_size:,}")
+                print(f"🛑 Stopping benchmark - likely reached VRAM limit")
                 break
             
-            # Small delay between tests
-            if i < total_tests:
-                print(f"  ⏸️  Waiting 2 seconds before next test...")
+            # Small delay between context size tests
+            if context_idx < total_context_tests:
+                print(f"  ⏸️  Waiting 2 seconds before next context size...")
                 time.sleep(2)
         
         print("\n" + "=" * 60)
@@ -368,37 +403,52 @@ class OllamaVRAMBenchmark:
         if not successful_results:
             return {"error": "No successful benchmarks"}
         
-        # Find best performance (ignoring model load time)
-        baseline_tps = max([r["tokens_per_second"] for r in successful_results])
+        # Group results by context size and calculate averages for multiple iterations
+        context_groups = {}
+        for result in successful_results:
+            context_size = result["context_size"]
+            if context_size not in context_groups:
+                context_groups[context_size] = []
+            context_groups[context_size].append(result)
+        
+        # Calculate average performance for each context size
+        context_averages = []
+        for context_size, results in context_groups.items():
+            avg_tps = sum(r["tokens_per_second"] for r in results) / len(results)
+            avg_prompt_time = sum(r.get("prompt_processing_time", 0) for r in results) / len(results)
+            avg_vram = sum(r["gpu_mem_after"] for r in results) / len(results)
+            
+            context_averages.append({
+                "context_size": context_size,
+                "tokens_per_second": avg_tps,
+                "prompt_processing_time": avg_prompt_time,
+                "gpu_mem_after": avg_vram,
+                "gpu_mem_percent": avg_vram/results[0]["gpu_total"]*100,
+                "pure_generation_time": sum(r.get("pure_generation_time", 0) for r in results) / len(results),
+                "model_load_time": sum(r.get("model_load_and_prompt_time", 0) for r in results) / len(results),
+                "num_iterations": len(results),
+                "min_tps": min(r["tokens_per_second"] for r in results),
+                "max_tps": max(r["tokens_per_second"] for r in results),
+                "gpu_total": results[0]["gpu_total"]
+            })
+        
+        # Find best average performance (ignoring model load time)
+        baseline_tps = max([avg["tokens_per_second"] for avg in context_averages])
         
         # Use 5% margin of error for performance comparisons
         performance_threshold = baseline_tps * 0.95  # Within 5% is considered equal
         
-        # Find contexts that perform within 5% margin (focusing on generation + prompt processing)
-        acceptable_results = []
-        for result in successful_results:
-            tps = result["tokens_per_second"]
-            prompt_time = result.get("prompt_processing_time", 0)
-            
-            # Performance is acceptable if tokens/sec is within 5% margin
-            if tps >= performance_threshold:
-                acceptable_results.append({
-                    "context_size": result["context_size"],
-                    "tokens_per_second": tps,
-                    "prompt_processing_time": prompt_time,
-                    "gpu_mem_after": result["gpu_mem_after"],
-                    "gpu_mem_percent": result["gpu_mem_after"]/result["gpu_total"]*100,
-                    "pure_generation_time": result.get("pure_generation_time", 0),
-                    "model_load_time": result.get("model_load_and_prompt_time", 0)
-                })
+        # Find contexts that perform within 5% margin (using averages)
+        acceptable_results = [avg for avg in context_averages 
+                            if avg["tokens_per_second"] >= performance_threshold]
         
         if not acceptable_results:
             # Fallback to all results if none meet the 5% threshold
-            acceptable_results = successful_results
+            acceptable_results = context_averages
         
         # Choose the largest context size that maintains performance within 5% margin
         optimal_result = max(acceptable_results, key=lambda x: x["context_size"])
-        max_vram_result = successful_results[-1]
+        max_vram_result = max(context_averages, key=lambda x: x["context_size"])
         
         # Calculate efficiency metrics (excluding model load time)
         efficiency_scores = []
