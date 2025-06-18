@@ -92,7 +92,11 @@ class OllamaVRAMBenchmark:
                 stream=False,
                 options={
                     "num_predict": 5,
-                    "temperature": 0.1
+                    "temperature": 0.8,
+                    "top_k": 40,
+                    "top_p": 0.95,
+                    "min_p": 0.05,
+                    "repeat_penalty": 1.1
                 }
             )
             
@@ -220,10 +224,11 @@ class OllamaVRAMBenchmark:
                 prompt=prompt,
                 stream=True,
                 options={
-                    "temperature": 0.7,
+                    "temperature": 0.8,
                     "num_ctx": context_size,
                     "top_k": 40,
-                    "top_p": 0.9,
+                    "top_p": 0.95,
+                    "min_p": 0.05,
                     "repeat_penalty": 1.1
                 }
             )
