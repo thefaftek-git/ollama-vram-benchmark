@@ -110,7 +110,7 @@ class OllamaVRAMBenchmark:
 
     def download_model(self) -> bool:
         """Download the Mistral model if not already available"""
-        print(f"Checking if model {self.model_name} is available...")
+        print(f"🔍 Checking if model {self.model_name} is available...")
         
         try:
             response = requests.get(f"{self.ollama_url}/api/tags")
@@ -118,13 +118,21 @@ class OllamaVRAMBenchmark:
             
             for model in models:
                 if self.model_name in model.get("name", ""):
-                    print(f"✅ Model {self.model_name} already exists and does not need to be downloaded")
-                    print(f"    Model size: {model.get('size', 'Unknown')} bytes")
-                    print(f"    Modified: {model.get('modified_at', 'Unknown')}")
+                    print("=" * 50)
+                    print(f"✅ MODEL ALREADY EXISTS - NO DOWNLOAD NEEDED")
+                    print("=" * 50)
+                    print(f"📦 Model: {self.model_name}")
+                    model_size_bytes = model.get('size', 0)
+                    if model_size_bytes > 0:
+                        model_size_gb = model_size_bytes / (1024**3)
+                        print(f"💾 Size: {model_size_gb:.1f} GB ({model_size_bytes:,} bytes)")
+                    print(f"📅 Modified: {model.get('modified_at', 'Unknown')}")
+                    print(f"🚀 Ready to proceed with benchmarking!")
+                    print("=" * 50)
                     return True
             
-            print(f"📥 Downloading model {self.model_name}...")
-            print("This may take several minutes (downloading ~4.1GB)...")
+            print(f"📥 Model not found locally. Downloading {self.model_name}...")
+            print("⏳ This may take several minutes (downloading ~4.1GB)...")
             pull_data = {"name": self.model_name}
             response = requests.post(f"{self.ollama_url}/api/pull", 
                                    json=pull_data, stream=True)
