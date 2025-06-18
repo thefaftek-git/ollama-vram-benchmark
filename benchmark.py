@@ -432,6 +432,7 @@ class OllamaVRAMBenchmark:
                 if result["success"]:
                     # Show individual test result
                     print(f"    ✅ Iteration {iteration}: {result['tokens_per_second']:.1f} tokens/sec")
+                    print(f"    📝 Tokens Generated: {result['tokens_generated']}")
                     print(f"    🖥️  VRAM: {result['gpu_mem_after']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
                     print(f"    ⏱️  Times: Gen={result['pure_generation_time']:.3f}s, Prompt={result['prompt_processing_time']:.3f}s")
                 else:
@@ -448,6 +449,7 @@ class OllamaVRAMBenchmark:
                 prompt_times = [r["prompt_processing_time"] for r in successful_results]
                 generation_times = [r["pure_generation_time"] for r in successful_results]
                 vram_usage = [r["gpu_mem_after"] for r in successful_results]
+                tokens_generated = [r["tokens_generated"] for r in successful_results]
                 
                 avg_tps = sum(tokens_per_sec) / len(tokens_per_sec)
                 min_tps = min(tokens_per_sec)
@@ -455,9 +457,13 @@ class OllamaVRAMBenchmark:
                 avg_prompt_time = sum(prompt_times) / len(prompt_times)
                 avg_vram = sum(vram_usage) / len(vram_usage)
                 vram_percent = avg_vram / successful_results[0]["gpu_total"] * 100
+                avg_tokens = sum(tokens_generated) / len(tokens_generated)
+                min_tokens = min(tokens_generated)
+                max_tokens = max(tokens_generated)
                 
                 print(f"\n📊 CONTEXT {context_size:,} SUMMARY ({len(successful_results)}/{iterations} successful):")
                 print(f"    ⚡ Performance: {avg_tps:.1f} tokens/sec (avg), range: {min_tps:.1f}-{max_tps:.1f}")
+                print(f"    📝 Tokens Generated: {avg_tokens:.0f} (avg), range: {min_tokens}-{max_tokens}")
                 print(f"    🖥️  VRAM Usage: {avg_vram:,.0f} MB ({vram_percent:.1f}%)")
                 print(f"    🧠 Prompt Processing: {avg_prompt_time:.3f}s (avg)")
                 
