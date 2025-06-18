@@ -13,6 +13,7 @@ import subprocess
 import sys
 from typing import Dict, List, Tuple, Optional
 import requests
+import ollama
 import psutil
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -82,25 +83,25 @@ class OllamaVRAMBenchmark:
         print("🔥 Warming up model...")
         
         try:
-            # Simple warm-up request
-            warm_up_data = {
-                "model": self.model_name,
-                "prompt": "Hello, please respond with just 'Ready'",
-                "stream": False,
-                "options": {
+            # Simple warm-up request using ollama package
+            client = ollama.Client(host=self.ollama_url)
+            
+            response = client.generate(
+                model=self.model_name,
+                prompt="Hello, please respond with just 'Ready'",
+                stream=False,
+                options={
                     "num_predict": 5,
                     "temperature": 0.1
                 }
-            }
+            )
             
-            response = requests.post(f"{self.ollama_url}/api/generate", 
-                                   json=warm_up_data, timeout=60)
-            
-            if response.status_code == 200:
+            if response and 'response' in response:
                 print("✅ Model warmed up successfully")
+                print(f"    Response: {response['response'].strip()}")
                 return True
             else:
-                print(f"⚠️ Warm-up completed with status {response.status_code}")
+                print("⚠️ Warm-up completed but no response received - continuing anyway")
                 return True  # Continue anyway
                 
         except Exception as e:
@@ -193,58 +194,57 @@ class OllamaVRAMBenchmark:
         gpu_mem_before, gpu_total = self.get_gpu_memory_info()
         cpu_mem_before = psutil.Process().memory_info().rss // (1024 * 1024)
         
-        request_data = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": True,  # Use streaming for better performance
-            "options": {
-                "temperature": 0.7,
-                "num_ctx": context_size,
-                # Remove num_predict to allow natural generation
-                "top_k": 40,
-                "top_p": 0.9,
-                "repeat_penalty": 1.1
-            }
-        }
-        
-        start_time = time.time()
+        # Timing markers
+        request_start = time.time()
+        prompt_processed_time = None
+        first_token_time = None
         tokens_generated = 0
         response_text = ""
-        first_token_time = None
         
         try:
-            response = requests.post(f"{self.ollama_url}/api/generate", 
-                                   json=request_data, stream=True, timeout=300)
-            response.raise_for_status()
+            # Use ollama package for better control and timing
+            client = ollama.Client(host=self.ollama_url)
             
-            # Process streaming response
-            for line in response.iter_lines():
-                if line:
-                    try:
-                        data = json.loads(line)
-                        
-                        if "response" in data:
-                            chunk = data["response"]
-                            response_text += chunk
-                            
-                            # Count tokens (approximate by splitting on whitespace)
-                            new_tokens = len(chunk.split())
-                            tokens_generated += new_tokens
-                            
-                            # Record first token time
-                            if first_token_time is None and tokens_generated > 0:
-                                first_token_time = time.time()
-                            
-                            # Stop after reaching target tokens naturally
-                            if tokens_generated >= target_tokens:
-                                break
-                                
-                        # Check if generation is complete
-                        if data.get("done", False):
-                            break
-                            
-                    except json.JSONDecodeError:
-                        continue
+            response_stream = client.generate(
+                model=self.model_name,
+                prompt=prompt,
+                stream=True,
+                options={
+                    "temperature": 0.7,
+                    "num_ctx": context_size,
+                    "top_k": 40,
+                    "top_p": 0.9,
+                    "repeat_penalty": 1.1
+                }
+            )
+            
+            # Process streaming response with detailed timing
+            for chunk in response_stream:
+                current_time = time.time()
+                
+                # Mark when prompt processing is done (first chunk received)
+                if prompt_processed_time is None:
+                    prompt_processed_time = current_time
+                
+                if 'response' in chunk:
+                    token_chunk = chunk['response']
+                    response_text += token_chunk
+                    
+                    # Count tokens (approximate by splitting on whitespace)
+                    new_tokens = len(token_chunk.split())
+                    tokens_generated += new_tokens
+                    
+                    # Record first actual token time
+                    if first_token_time is None and tokens_generated > 0:
+                        first_token_time = current_time
+                    
+                    # Stop after reaching target tokens naturally
+                    if tokens_generated >= target_tokens:
+                        break
+                
+                # Check if generation is complete
+                if chunk.get('done', False):
+                    break
             
             end_time = time.time()
             
@@ -252,18 +252,24 @@ class OllamaVRAMBenchmark:
             gpu_mem_after, _ = self.get_gpu_memory_info()
             cpu_mem_after = psutil.Process().memory_info().rss // (1024 * 1024)
             
-            total_time = end_time - start_time
-            first_token_latency = (first_token_time - start_time) if first_token_time else 0
+            # Calculate detailed timing metrics
+            total_time = end_time - request_start
+            model_load_and_prompt_time = (prompt_processed_time - request_start) if prompt_processed_time else 0
+            first_token_latency = (first_token_time - request_start) if first_token_time else 0
+            prompt_processing_time = (first_token_time - prompt_processed_time) if (first_token_time and prompt_processed_time) else 0
+            pure_generation_time = (end_time - first_token_time) if first_token_time else 0
             
-            # Calculate accurate tokens per second from first token to end (excluding prompt processing)
-            generation_time = end_time - first_token_time if first_token_time else total_time
+            # Calculate tokens per second for pure generation (what you care about)
             final_tokens = len(response_text.split())
-            tokens_per_second = final_tokens / generation_time if generation_time > 0 else 0
+            tokens_per_second = final_tokens / pure_generation_time if pure_generation_time > 0 else 0
             
             return {
                 "context_size": context_size,
                 "success": True,
-                "generation_time": generation_time,
+                "total_time": total_time,
+                "model_load_and_prompt_time": model_load_and_prompt_time,
+                "prompt_processing_time": prompt_processing_time,
+                "pure_generation_time": pure_generation_time,
                 "first_token_latency": first_token_latency,
                 "tokens_generated": final_tokens,
                 "tokens_per_second": tokens_per_second,
@@ -311,11 +317,14 @@ class OllamaVRAMBenchmark:
             if result["success"]:
                 # Show success with detailed metrics
                 print(f"  ✅ SUCCESS")
-                print(f"  ⚡ Performance: {result['tokens_per_second']:.1f} tokens/sec")
+                print(f"  ⚡ Performance: {result['tokens_per_second']:.1f} tokens/sec (pure generation)")
                 print(f"  🖥️  VRAM Usage: {result['gpu_mem_after']:,}/{result['gpu_total']:,} MB ({result['gpu_mem_after']/result['gpu_total']*100:.1f}%)")
-                print(f"  ⏱️  Generation time: {result['generation_time']:.2f}s (pure generation, excluding prompt processing)")
-                print(f"  🚀 First token latency: {result['first_token_latency']:.3f}s")
                 print(f"  📝 Tokens generated: {result['tokens_generated']}")
+                print(f"  ⏱️  Timing breakdown:")
+                print(f"      🔄 Model load + setup: {result['model_load_and_prompt_time']:.3f}s")
+                print(f"      🧠 Prompt processing: {result['prompt_processing_time']:.3f}s") 
+                print(f"      🚀 Pure generation: {result['pure_generation_time']:.3f}s")
+                print(f"      📊 Total time: {result['total_time']:.3f}s")
                 
                 # Show progress bar
                 progress = i / total_tests * 100
